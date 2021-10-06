@@ -1,0 +1,312 @@
+# Imports
+import asyncio
+import os
+from datetime import datetime, timedelta
+
+import discord
+import pymongo
+import requests
+import spotipy
+from discord.ext import commands
+from spotipy.oauth2 import SpotifyClientCredentials
+
+SPOTIPY_CLIENT_ID='9e921012f9a9490a9125b229a3e8915e'
+client = discord.Client()
+mongoClient = pymongo.MongoClient(
+    'mongodb+srv://Java:Merlin67@sirius.dmiob.mongodb.net/myFirstDatabase?retryWrites=true&w=majority', tls=True,
+    tlsAllowInvalidCertificates=True)
+db = mongoClient.get_database("Springs").get_collection("servers")
+db2 = mongoClient.get_database("Springs").get_collection("protection")
+db3 = mongoClient.get_database("Springs").get_collection("internal")
+db4 = mongoClient.get_database("Springs").get_collection("punishments")
+db5 = mongoClient.get_database("Springs").get_collection("antilimits")
+db6 = mongoClient.get_database("Springs").get_collection("welcoming")
+db7 = mongoClient.get_database("Springs").get_collection("lastfm")
+blacklisted = db3['blacklisted']
+
+def blacklist_check():
+    def predicate(ctx):
+        author_id = ctx.author.id
+        if blacklisted.find_one({'user_id': author_id}):
+            return False
+        return True
+    return commands.check(predicate)
+
+async def get_prefix(client, message):
+    if message.guild:
+        try:
+            prefix = db.find_one({"guild_id": message.guild.id})["prefix"]
+            return commands.when_mentioned_or(prefix)(client, message)
+        except(KeyError, AttributeError, TypeError):
+            return commands.when_mentioned_or(prefix)(client, message)
+
+class LastFM(commands.Cog):
+    def __init__(self, client):
+        self.client = client
+
+    @commands.Cog.listener()
+    async def on_ready(self):
+        print(f"[\x1b[38;5;213mLOG\x1b[38;5;15m] Cog Loaded: [\x1b[38;5;213m{self.__class__.__name__}\x1b[38;5;15m]")
+
+
+    @commands.command()
+    async def set(self, ctx, username):
+        params = {
+            "user": username,
+            "api_key": "aa1ba2ae3e907180530b402d8df0fe0b",
+            "format": "json",
+            "method": "user.getInfo"
+        }
+        r = requests.get("http://ws.audioscrobbler.com/2.0/", params=params)
+        data = r.json()
+        try:
+            username = data["user"]["name"]
+        except KeyError:
+            embed = discord.Embed(description=f"<:AsylumError:891452144476119101> {username} is a invalid `Username`", color=0xE2BAB1)
+            return await ctx.send(embed=embed)
+        db7.insert_one({f"{ctx.author.id}": username})
+
+
+        embed = discord.Embed(description=f"<:AsylumCheck:891460634863108147> Successfully set your Username to `{username}`", color=0x7aaa64)
+        await ctx.send(embed=embed)
+
+    @commands.command()
+    async def unset(self, ctx):
+        db6.update_one({"guild_id": ctx.guild.id}, {"$set": {"username": None}})
+        db7.delete_one({f"{ctx.author.id}": "username"})
+
+        embed = discord.Embed(description=f"<:AsylumCheck:891460634863108147> Successfully unset your `Username`", color=0x7aaa64)
+        await ctx.send(embed=embed)
+
+
+
+    @commands.command(aliases=["ta"])
+    async def topartists(self, ctx, *, arg=None):
+        async with ctx.typing():
+
+            valid_timeframes = ["w", "m", "q", "s", "y", "a", None]
+            timeframe = ""
+            if arg is "w":
+                arg = "7day"
+                timeframe = "of the last week"
+            elif arg is "m":
+                arg = "1month"
+                timeframe = "of the last month"
+            elif arg is "q":
+                arg = "3month"
+                timeframe = "of the last quarter"
+            elif arg is "s":
+                arg = "6month"
+                timeframe = "of the last semester"
+            elif arg is "y":
+                arg = "12month"
+                timeframe = "of the last year"
+            elif arg is "a":
+                arg = "overall"
+                timeframe = "overall"
+            elif arg is None:
+                arg = "overall"
+                timeframe = "overall"
+            elif arg is not valid_timeframes:
+                await ctx.send(f"`Invalid timeframe` <a:DubuAngry:773329674679746610>")
+                return
+            
+            
+            lmao = db7.find_one()[f"{ctx.author.id}"]
+            username = db7.find_one()[f"{ctx.author.id}"]
+            author = ctx.message.author
+            pfp = author.avatar_url
+
+
+            lastfm_username = username
+            if not lastfm_username:
+                embed = discord.Embed(description=f"<:AsylumError:891452144476119101> You need to set your LastFM name", color=0xE2BAB1)
+                return await ctx.send(embed=embed)
+
+            top_artists_params = {
+                "period": arg,
+                "limit": "10",
+                "user": lastfm_username,
+                "api_key": "aa1ba2ae3e907180530b402d8df0fe0b",
+                "format": "json",
+                "method": "user.getTopArtists"
+            }
+
+            r = requests.get("http://ws.audioscrobbler.com/2.0/", params=top_artists_params)
+            tadata = r.json()
+            await asyncio.sleep(0.25)
+            top_artists_names = [name["name"] for name in tadata["topartists"]["artist"]]
+            top_artists_string = "\n".join(top_artists_names)
+            
+            embed = discord.Embed(
+                description = f"{top_artists_string}",
+                colour = 0xE2BAB1
+            )
+
+            embed.set_author(name=f"Top artists for {lastfm_username}")
+
+        await ctx.send(embed=embed)
+
+    @commands.command(aliases=["fmnow", "nowfm"])
+    async def spnow(self, ctx, arg=None):
+        async with ctx.typing():
+
+            username = 'JavaLmao'
+            author = ctx.message.author
+            pfp = author.avatar_url
+
+            if username is None:
+                embed = discord.Embed(description = f"You need to first set your Last.fm username with the command\n`>set [your username]`", colour = 0xE2BAB1)
+                return await ctx.send(embed=embed)
+
+            lastfm_username = username
+            if not lastfm_username:
+                embed = discord.Embed(description = f"You need to first set your Last.fm username with the command\n`>set [your username]`", colour = 0xE2BAB1)
+                return await ctx.send(embed=embed)
+            
+            recent_tracks_params = {
+                "limit": "1",
+                "user": lastfm_username,
+                "api_key": "aa1ba2ae3e907180530b402d8df0fe0b",
+                "format": "json",
+                "method": "user.getRecentTracks"
+            }
+
+            r1 = requests.get("http://ws.audioscrobbler.com/2.0/", params=recent_tracks_params)
+            rtdata = r1.json()
+
+            try:
+                rtinfo = rtdata["recenttracks"]["track"][0]
+            except IndexError:
+                embed = discord.Embed(description = f"**You haven't listened to anything yet on Last.fm!**", colour = 0xE2BAB1)
+                return await ctx.send(embed=embed)
+            artist = rtinfo["artist"]["#text"]
+            track = rtinfo["name"]
+            album = rtinfo["album"]["#text"]
+            api_album_cover = rtinfo["image"][-1]["#text"]
+            no_file_type_album_cover = api_album_cover.rsplit(".",1)[0]
+            higher_res_album_cover = no_file_type_album_cover.replace("300x300", "700x0", 1)
+            total_playcount = rtdata["recenttracks"]["@attr"]["total"]
+            track_url = rtinfo["url"]
+
+            track_info_params = {
+                "track": track,
+                "artist": artist,
+                "user": lastfm_username,
+                "api_key": os.getenv("LASTFM_API_KEY"),
+                "format": "json",
+                "method": "track.getInfo"
+            }
+
+            r2 = requests.get("http://ws.audioscrobbler.com/2.0/", params=track_info_params)
+            rtdata = r2.json()
+            
+            try:
+                loved = rtdata["track"]["userloved"]
+                if loved is "1":
+                    loved = "❤️ "
+                else:
+                    loved = ""
+            except KeyError:
+                loved = ""
+
+            np = "@attr" in rtinfo and "nowplaying" in rtinfo["@attr"]
+            state = "Now playing for" if np else "Last scrobbled track for"
+
+            artist_info_params = {
+                "artist": artist,
+                "user": lastfm_username,
+                "api_key": "aa1ba2ae3e907180530b402d8df0fe0b",
+                "format": "json",
+                "method": "artist.getInfo"
+            }
+
+            r3 = requests.get("http://ws.audioscrobbler.com/2.0/", params=artist_info_params)
+            aidata = r3.json()
+            try:
+                artist_playcount = aidata["artist"]["stats"]["userplaycount"]
+            except KeyError:
+                artist_playcount = "n/a"
+            artist_url = aidata["artist"]["url"]
+            try:
+                artist_tags = [tag["name"] for tag in aidata["artist"]["tags"]["tag"]]
+            except TypeError:
+                artist_tags = ""
+            artist_tags_string = " ∙ ".join(artist_tags)
+
+            album_info_params = {
+                "artist": artist,
+                "album": album,
+                "user": lastfm_username,
+                "api_key": "aa1ba2ae3e907180530b402d8df0fe0b",
+                "format": "json",
+                "method": "album.getInfo"
+            }
+
+            r4 = requests.get("http://ws.audioscrobbler.com/2.0/", params=album_info_params)
+            abidata = r4.json()
+            try:
+                album_url = abidata["album"]["url"]
+                if abidata["album"]["userplaycount"] == "1":
+                    album_scrobbles = str(abidata["album"]["userplaycount"]) + " album play"
+                else:
+                    album_scrobbles = str(abidata["album"]["userplaycount"]) + " album plays"
+            except KeyError:
+                album_url = ""
+                album_scrobbles = "n/a"
+
+            track_info_params = {
+                "track": track,
+                "artist": artist,
+                "user": lastfm_username,
+                "api_key": "aa1ba2ae3e907180530b402d8df0fe0b",
+                "format": "json",
+                "method": "track.getInfo"
+            }
+
+            r5 = requests.get("http://ws.audioscrobbler.com/2.0/", params=track_info_params)
+            trackdata = r5.json()
+            try:
+                if trackdata["track"]["userplaycount"] == "1":
+                    track_scrobbles = str(trackdata["track"]["userplaycount"]) + " track play"
+                else:
+                    track_scrobbles = str(trackdata["track"]["userplaycount"]) + " track plays"
+            except KeyError:
+                track_scrobbles = "n/a"
+                
+        try:
+            if artist_playcount == "1":
+                artist_scrobbles = f"{artist_playcount} {artist} play"
+            else:
+                artist_scrobbles = f"{artist_playcount} {artist} plays"
+        except KeyError:
+            artist_scrobbles = "n/a"
+
+        if album == "":
+            embed = discord.Embed(
+                url = track_url,
+                title = track,
+                description = f"By **[{artist}]({artist_url})**",
+                colour = 0xE2BAB1)
+            embed.set_footer(text=f"{artist_tags_string.lower()}\n{track_scrobbles} ∙ {artist_scrobbles} ∙ {total_playcount} total plays")
+        else:
+            embed = discord.Embed(
+                url = track_url,
+                title = track,
+                description = f"By **[{artist}]({artist_url})** from **[{album}]({album_url})**",
+                colour = 0xE2BAB1)
+
+            if arg is "a" or arg is "album":
+                embed.set_footer(text=f"{artist_tags_string.lower()}\n{album_scrobbles} ∙ {artist_scrobbles} ∙ {total_playcount} total plays")
+            else:
+                embed.set_footer(text=f"{artist_tags_string.lower()}\n{track_scrobbles} ∙ {artist_scrobbles} ∙ {total_playcount} total plays")
+
+        embed.set_author(name=f"{loved}{state} {lastfm_username}", url=f"https://www.last.fm/user/{lastfm_username}", icon_url=pfp)
+        embed.set_thumbnail(url=higher_res_album_cover)
+
+        await ctx.send(embed=embed)
+
+
+
+def setup(client):
+    client.add_cog(LastFM(client))
